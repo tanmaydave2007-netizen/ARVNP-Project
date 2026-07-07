@@ -124,7 +124,7 @@ if not st.session_state.logged_in:
             <div style='background: linear-gradient(135deg, #1e1b4b 0%, #431407 100%); padding: 35px; border-radius: 15px; border: 1px solid #f97316; box-shadow: 0 4px 25px rgba(249, 115, 22, 0.25); text-align: center;'>
                 {logo_html}
                 <h2 style='color: white; margin: 0; font-family: "Segoe UI", sans-serif; font-size: 26px; font-weight: 600;'>ARVNP Control Panel</h2>
-                <p style='color: #fdba74; margin-top: 8px; font-size: 14px; margin-bottom: 0;'>Please enter your administrative credentials</p>
+                <p style='color: #fdba74; margin-top: 8px; font-size: 14px; margin-bottom: 0;">Please enter your administrative credentials</p>
             </div>
         """, unsafe_allow_html=True)
         
