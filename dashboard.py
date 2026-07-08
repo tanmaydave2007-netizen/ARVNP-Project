@@ -1,4 +1,28 @@
 import streamlit as st
+
+# આ કોડ બધા માટે બધું જ હાઇડ (સંતાડી) દેશે
+hide_streamlit_style = """
+            <style>
+            /* આખા હેડર, ફૂટર અને ટૂલબારને ગાયબ કરવા */
+            header {visibility: hidden !important;}
+            footer {visibility: hidden !important;}
+            #MainMenu {visibility: hidden !important;}
+            
+            /* જમણી બાજુ નીચે દેખાતા ગિટહબ પ્રોફાઈલ અને ક્રાઉન બટનને હટાવવા */
+            div[data-testid="stViewerToolbar"] {display: none !important; visibility: hidden !important;}
+            div[data-testid="stToolbar"] {display: none !important; visibility: hidden !important;}
+            .stAppDeployButton {display: none !important;}
+            
+            /* ઉપર દેખાતા Fork, GitHub અને અન્ય આઇકોન્સ માટે */
+            button[title="View source on GitHub"] {display: none !important;}
+            a[href*="github.com"] {display: none !important;}
+            
+            /* ક્રોમ કે સફારીમાં ઉપરની આખી પટ્ટી ખાલી કરવા */
+            .st-emotion-cache-ch5d6f {display: none !important;}
+            .st-emotion-cache-18ni7ap {display: none !important;}
+            </style>
+            """
+st.markdown(hide_streamlit_style, unsafe_allow_html=True)
 import sqlite3
 import pandas as pd
 import os
