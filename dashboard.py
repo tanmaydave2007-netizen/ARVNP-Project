@@ -1,28 +1,14 @@
 import streamlit as st
 
-# આ કોડ બધા માટે બધું જ હાઇડ (સંતાડી) દેશે
-hide_streamlit_style = """
-            <style>
-            /* આખા હેડર, ફૂટર અને ટૂલબારને ગાયબ કરવા */
-            header {visibility: hidden !important;}
-            footer {visibility: hidden !important;}
-            #MainMenu {visibility: hidden !important;}
-            
-            /* જમણી બાજુ નીચે દેખાતા ગિટહબ પ્રોફાઈલ અને ક્રાઉન બટનને હટાવવા */
-            div[data-testid="stViewerToolbar"] {display: none !important; visibility: hidden !important;}
-            div[data-testid="stToolbar"] {display: none !important; visibility: hidden !important;}
-            .stAppDeployButton {display: none !important;}
-            
-            /* ઉપર દેખાતા Fork, GitHub અને અન્ય આઇકોન્સ માટે */
-            button[title="View source on GitHub"] {display: none !important;}
-            a[href*="github.com"] {display: none !important;}
-            
-            /* ક્રોમ કે સફારીમાં ઉપરની આખી પટ્ટી ખાલી કરવા */
-            .st-emotion-cache-ch5d6f {display: none !important;}
-            .st-emotion-cache-18ni7ap {display: none !important;}
-            </style>
-            """
-st.markdown(hide_streamlit_style, unsafe_allow_html=True)
+# 1. PAGE SETUP (નિયમ મુજબ આ હંમેશાં સૌથી ઉપર હોવું જોઈએ)
+st.set_page_config(
+    page_title="Automatic Recognition of Vehicle Number Plate",
+    page_icon="🚗",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# 2. બધી લાઈબ્રેરીઓ (ઇમ્પોર્ટ) એકસાથે ઉપર ગોઠવી દીધી
 import sqlite3
 import pandas as pd
 import os
@@ -35,13 +21,33 @@ import numpy as np
 from datetime import datetime
 import plotly.express as px
 
-# 1. PAGE SETUP
-st.set_page_config(
-    page_title="Automatic Recognition of Vehicle Number Plate",
-    page_icon="🚗",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+# 3. 🚫 પાકો CSS કોડ (બધાના ફોનમાંથી Fork, GitHub આઇકોન અને નીચેનો મુગટ હટાવવા માટે)
+hide_streamlit_style = """
+            <style>
+            /* આખા હેડર, ફૂટર અને ટૂલબારને ગાયબ કરવા */
+            header {visibility: hidden !important; display: none !important;}
+            footer {visibility: hidden !important; display: none !important;}
+            #MainMenu {visibility: hidden !important; display: none !important;}
+            
+            /* જમણી બાજુ નીચે દેખાતા ગિટહબ પ્રોફાઈલ, ક્રાઉન અને સ્ટેટસ વિજેટને હટાવવા */
+            div[data-testid="stViewerToolbar"] {display: none !important; visibility: hidden !important;}
+            div[data-testid="stToolbar"] {display: none !important; visibility: hidden !important;}
+            div[data-testid="stStatusWidget"] {display: none !important; visibility: hidden !important;}
+            div[class*="stActionButton"] {display: none !important; visibility: hidden !important;}
+            div[data-testid="stDecoration"] {display: none !important; visibility: hidden !important;}
+            .stAppDeployButton {display: none !important;}
+            
+            /* ઉપર દેખાતા Fork, GitHub અને અન્ય આઇકોન્સ માટે */
+            button[title="View source on GitHub"] {display: none !important;}
+            a[href*="github.com"] {display: none !important;}
+            div[class*="viewerBadge"] {display: none !important;}
+            
+            /* ક્રોમ કે સફારીમાં ઉપરની આખી પટ્ટી ખાલી કરવા */
+            .st-emotion-cache-ch5d6f {display: none !important;}
+            .st-emotion-cache-18ni7ap {display: none !important;}
+            </style>
+            """
+st.markdown(hide_streamlit_style, unsafe_allow_html=True)
 
 # 🖥️ LOCAL IMAGE TO BASE64 HELPER FUNCTION
 def get_base64_of_bin_file(bin_file):
@@ -109,26 +115,6 @@ else:
     """
 
 st.markdown(bg_css, unsafe_allow_html=True)
-# 🚫 FINAL TRICK TO REMOVE FLOATING AVATAR AND CROWN LOGO
-hide_st_elements = """
-    <style>
-    /* નીચે દેખાતી આખી ફ્લોટિંગ પટ્ટી (ફોટો અને મુગટ બંને) ગાયબ કરવા માટે */
-    div[data-testid="stStatusWidget"],
-    div[class*="stActionButton"],
-    footer,
-    .stDeployButton,
-    div[data-testid="stDecoration"] {
-        display: none !important;
-        visibility: hidden !important;
-    }
-    
-    /* સાઇડમાંથી પણ કોઈ એલિમેન્ટ પોપઅપ ન થાય એના માટે */
-    div[class*="viewerBadge"] {
-        display: none !important;
-    }
-    </style>
-"""
-st.markdown(hide_st_elements, unsafe_allow_html=True)
 
 # 🔐 LOGIN SYSTEM PARAMETERS IN SESSION STATE
 if "logged_in" not in st.session_state:
@@ -164,14 +150,6 @@ if not st.session_state.logged_in:
             logo_base64 = get_base64_of_bin_file(logo_path)
             logo_html = f"<img src='data:image/jpeg;base64,{logo_base64}' width='100%' style='max-width:130px; margin-bottom:15px; border-radius:10px; filter: drop-shadow(0px 4px 12px rgba(0,0,0,0.3));'><br>"
         
-        # st.markdown(f"""
-        #     <div style='background: linear-gradient(135deg, #1e1b4b 0%, #431407 100%); padding: 35px; border-radius: 15px; border: 1px solid #f97316; box-shadow: 0 4px 25px rgba(249, 115, 22, 0.25); text-align: center;'>
-        #         {logo_html}
-        #         <h2 style='color: white; margin: 0; font-family: "Segoe UI", sans-serif; font-size: 26px; font-weight: 600;">ARVNP Control Panel</h2>
-        #         <p style='color: #fdba74; margin-top: 8px; font-size: 14px; margin-bottom: 0;">Please enter your administrative credentials</p>
-        #     </div>
-        # """, unsafe_allow_html=True)
-
         st.markdown(f"""<div style='background: linear-gradient(135deg, #1e1b4b 0%, #431407 100%); padding: 35px; border-radius: 15px; border: 1px solid #f97316; box-shadow: 0 4px 25px rgba(249, 115, 22, 0.25); text-align: center;'>{logo_html}<h2 style='color: white; margin: 0; font-family: "Segoe UI", sans-serif; font-size: 26px; font-weight: 600;'>ARVNP Control Panel</h2><p style='color: #fdba74; margin-top: 8px; font-size: 14px; margin-bottom: 0;'>Please enter your administrative credentials</p></div>""", unsafe_allow_html=True)
         
         st.markdown("<br>", unsafe_allow_html=True)
