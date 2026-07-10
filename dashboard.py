@@ -201,9 +201,9 @@ if not st.session_state.logged_in:
 
 @st.cache_resource
 def load_models():
-    # RAM બચાવવા માટે લાઈટવેઈટ કોન્ફિગ્યુરેશન
     model = YOLO('yolov8n.pt') 
-    reader = easyocr.Reader(['en'], gpu=False, model_storage_dir='.', download_enabled=True) 
+    # એરર ફિક્સ કરવા માટે model_storage_dir બદલીને model_dir કર્યું છે
+    reader = easyocr.Reader(['en'], gpu=False, model_dir='.', download_enabled=True) 
     return model, reader
 
 model, reader = load_models()
