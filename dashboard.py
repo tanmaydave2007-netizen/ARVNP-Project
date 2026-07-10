@@ -134,14 +134,12 @@ if not st.session_state.logged_in:
     with col:
         st.markdown("<br><br>", unsafe_allow_html=True)
         
-        # 📌 ક્લાઉડ માટે શોર્ટ પાથ સેટ કર્યો છે
         logo_path = "logo.jpeg" 
         logo_html = ""
         if os.path.exists(logo_path):
             logo_base64 = get_base64_of_bin_file(logo_path)
             logo_html = f"<img src='data:image/jpeg;base64,{logo_base64}' width='100%' style='max-width:130px; margin-bottom:15px; border-radius:10px; filter: drop-shadow(0px 4px 12px rgba(0,0,0,0.3));'><br>"
          
-        # 📌 HTML ડિઝાઈન બરાબર પ્રિન્ટ થાય તે માટે st.markdown() નો સાચો ઉપયોગ કર્યો
         st.markdown(f"""
             <div style='background: linear-gradient(135deg, #1e1b4b 0%, #431407 100%); padding: 35px; border-radius: 15px; border: 1px solid #f97316; box-shadow: 0 4px 25px rgba(249, 115, 22, 0.25); text-align: center;'>
                 {logo_html}
@@ -203,8 +201,9 @@ if not st.session_state.logged_in:
 
 @st.cache_resource
 def load_models():
+    # RAM બચાવવા માટે લાઈટવેઈટ કોન્ફિગ્યુરેશન
     model = YOLO('yolov8n.pt') 
-    reader = easyocr.Reader(['en'], gpu=False) 
+    reader = easyocr.Reader(['en'], gpu=False, model_storage_dir='.', download_enabled=True) 
     return model, reader
 
 model, reader = load_models()
