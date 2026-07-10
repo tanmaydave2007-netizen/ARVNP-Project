@@ -1,7 +1,6 @@
 streamlit
 pandas
-ultralytics==8.1.0
+ultralytics
 easyocr
 plotly
-numpy==1.26.4
-opencv-python-headless==4.8.0.74
+numpy<2.0.0
