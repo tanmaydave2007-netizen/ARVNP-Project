@@ -5,7 +5,6 @@ import sys
 try:
     import cv2
 except ImportError:
-    # જો Linux સર્વર પર સાદું cv2 ફેલ થાય, તો આ ટ્રીક એપને ક્રેશ થતા બચાવશે
     pass
 
 import streamlit as st
@@ -134,12 +133,15 @@ if not st.session_state.logged_in:
     _, col, _ = st.columns([1, 1.5, 1])
     with col:
         st.markdown("<br><br>", unsafe_allow_html=True)
-        logo_path = r"C:\Users\ALPESH PATEL\Desktop\Social_ANPR_Project\logo.jpeg"
+        
+        # 📌 ક્લાઉડ માટે શોર્ટ પાથ સેટ કર્યો છે
+        logo_path = "logo.jpeg" 
         logo_html = ""
         if os.path.exists(logo_path):
             logo_base64 = get_base64_of_bin_file(logo_path)
             logo_html = f"<img src='data:image/jpeg;base64,{logo_base64}' width='100%' style='max-width:130px; margin-bottom:15px; border-radius:10px; filter: drop-shadow(0px 4px 12px rgba(0,0,0,0.3));'><br>"
          
+        # 📌 HTML ડિઝાઈન બરાબર પ્રિન્ટ થાય તે માટે st.markdown() નો સાચો ઉપયોગ કર્યો
         st.markdown(f"""
             <div style='background: linear-gradient(135deg, #1e1b4b 0%, #431407 100%); padding: 35px; border-radius: 15px; border: 1px solid #f97316; box-shadow: 0 4px 25px rgba(249, 115, 22, 0.25); text-align: center;'>
                 {logo_html}
@@ -201,15 +203,12 @@ if not st.session_state.logged_in:
 
 @st.cache_resource
 def load_models():
-    # સ્મૂધ પર્ફોર્મન્સ અને ઝીરો લેગ માટે 'yolov8n.pt' (Nano) બેસ્ટ છે.
     model = YOLO('yolov8n.pt') 
-    # જો ગ્રાફિક્સ કાર્ડ હોય તો gpu=True કરો, નહિતર False રાખવાથી પણ ફ્રેમ સ્કીપિંગના કારણે લેગ નહિ મારે
-    reader = easyocr.Reader(['en'], gpu=False) # Cloud પર GPU અવેલેબલ નથી હોતું એટલે False રાખ્યું છે
+    reader = easyocr.Reader(['en'], gpu=False) 
     return model, reader
 
 model, reader = load_models()
 
-# 🛡️ ઇન્ડિયન નંબર પ્લેટ ફિલ્ટર
 def is_valid_indian_plate(text):
     pattern = r'^[A-Z0-9]{4,11}$'
     return bool(re.match(pattern, text))
@@ -269,7 +268,6 @@ with tab1:
         with stats_col:
             stats_placeholder = st.empty()
         
-        # ક્લાઉડ પર કેમેરો ફેલ ન થાય તે માટે ચેક મૂક્યો છે
         try:
             if CCTV_MODE:
                 cap = cv2.VideoCapture(RTSP_URL, cv2.CAP_FFMPEG)
@@ -422,7 +420,7 @@ with tab1:
                 time.sleep(0.001)
             cap.release()
         except NameError:
-            st.error("⚠️ Cloud OS Environment Error: OpenCV Graphic libraries are missing. Camera mode is only fully supported locally.")
+            st.error("⚠️ Cloud OS Environment Error: OpenCV Graphic libraries are missing.")
 
     if not run_camera:
         conn = sqlite3.connect(DB_FILE)
