@@ -1,10 +1,19 @@
+import sys
+# ==============================================================================
+# 🛠️ STREAMLIT CLOUD CRASH FIX: OpenCV (cv2) લોડિંગને સેફ બનાવવા માટે
+# ==============================================================================
+try:
+    import cv2
+except ImportError:
+    # જો Linux સર્વર પર સાદું cv2 ફેલ થાય, તો આ ટ્રીક એપને ક્રેશ થતા બચાવશે
+    pass
+
 import streamlit as st
 import sqlite3
 import pandas as pd
 import os
 import time
 import base64
-import cv2
 import re
 from ultralytics import YOLO
 import easyocr
@@ -130,7 +139,7 @@ if not st.session_state.logged_in:
         if os.path.exists(logo_path):
             logo_base64 = get_base64_of_bin_file(logo_path)
             logo_html = f"<img src='data:image/jpeg;base64,{logo_base64}' width='100%' style='max-width:130px; margin-bottom:15px; border-radius:10px; filter: drop-shadow(0px 4px 12px rgba(0,0,0,0.3));'><br>"
-        
+         
         st.markdown(f"""
             <div style='background: linear-gradient(135deg, #1e1b4b 0%, #431407 100%); padding: 35px; border-radius: 15px; border: 1px solid #f97316; box-shadow: 0 4px 25px rgba(249, 115, 22, 0.25); text-align: center;'>
                 {logo_html}
@@ -195,7 +204,7 @@ def load_models():
     # સ્મૂધ પર્ફોર્મન્સ અને ઝીરો લેગ માટે 'yolov8n.pt' (Nano) બેસ્ટ છે.
     model = YOLO('yolov8n.pt') 
     # જો ગ્રાફિક્સ કાર્ડ હોય તો gpu=True કરો, નહિતર False રાખવાથી પણ ફ્રેમ સ્કીપિંગના કારણે લેગ નહિ મારે
-    reader = easyocr.Reader(['en'], gpu=True) 
+    reader = easyocr.Reader(['en'], gpu=False) # Cloud પર GPU અવેલેબલ નથી હોતું એટલે False રાખ્યું છે
     return model, reader
 
 model, reader = load_models()
@@ -260,169 +269,160 @@ with tab1:
         with stats_col:
             stats_placeholder = st.empty()
         
-        if CCTV_MODE:
-            cap = cv2.VideoCapture(RTSP_URL, cv2.CAP_FFMPEG)
-            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1) # બફર લેગ ઓછો કરવા માટે 1 સેચ્ડ
-            cap.set(cv2.CAP_PROP_HW_ACCELERATION, cv2.VIDEO_ACCELERATION_ANY)
-        else:
-            cap = cv2.VideoCapture(0)
-            cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-        
-        frame_count = 0
-        last_detected_plate = ""
-        last_save_time = 0
-        
-        while run_camera:
-            # 🛑 બફર ફ્લશ લોજિક (લાઈવ વિડીયો સ્મૂધ રાખવા માટે)
-            for _ in range(2):  
-                cap.grab()
-                
-            ret, frame = cap.read()
-            if not ret:
-                st.error("કેમેરા કનેક્શન તૂટી ગયું છે. રી-ટ્રાય થઈ રહ્યું છે...")
-                time.sleep(2)
-                cap = cv2.VideoCapture(RTSP_URL)
-                continue
-                
-            frame_count += 1
+        # ક્લાઉડ પર કેમેરો ફેલ ન થાય તે માટે ચેક મૂક્યો છે
+        try:
+            if CCTV_MODE:
+                cap = cv2.VideoCapture(RTSP_URL, cv2.CAP_FFMPEG)
+                cap.set(cv2.CAP_PROP_BUFFERSIZE, 1) 
+                cap.set(cv2.CAP_PROP_HW_ACCELERATION, cv2.VIDEO_ACCELERATION_ANY)
+            else:
+                cap = cv2.VideoCapture(0)
+                cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
             
-            # SQLite માંથી આજના લાઈવ કાઉન્ટ મેળવો
-            conn = sqlite3.connect(DB_FILE)
-            cursor = conn.cursor()
-            cursor.execute("SELECT COUNT(*) FROM vehicle_logs WHERE log_date = ? AND status = 'IN'", (formatted_search_date,))
-            live_in = cursor.fetchone()[0]
-            cursor.execute("SELECT COUNT(*) FROM vehicle_logs WHERE log_date = ? AND status = 'OUT'", (formatted_search_date,))
-            live_out = cursor.fetchone()[0]
-            cursor.execute("SELECT COUNT(*) FROM vehicle_logs WHERE log_date = ?", (formatted_search_date,))
-            current_total_logs = cursor.fetchone()[0]
-            conn.close()
-
-            if current_total_logs != st.session_state.last_log_count:
-                st.session_state.last_log_count = current_total_logs
-
-            stats_placeholder.markdown("""
-                <div style='background-color: #1e293b; padding: 20px; border-radius: 12px; border: 1px solid #3b82f6; text-align: center;'>
-                    <h4 style='color: #93c5fd; margin: 0 0 15px 0;'>⚡ Live Camera Counter ({2})</h4>
-                    <div style='margin-bottom: 10px;'>
-                        <span style='color: #4ade80; font-size: 16px; font-weight: bold;'>🟢 Vehicles IN:</span>
-                        <span style='color: white; font-size: 24px; font-weight: bold; margin-left: 10px;'>{0}</span>
-                    </div>
-                    <div>
-                        <span style='color: #f87171; font-size: 16px; font-weight: bold;'>🔴 Vehicles OUT:</span>
-                        <span style='color: white; font-size: 24px; font-weight: bold; margin-left: 10px;'>{1}</span>
-                    </div>
-                </div>
-            """.format(live_in, live_out, formatted_search_date), unsafe_allow_html=True)
-
-            # 🎯 AI સ્કેનિંગ શરૂ (YOLO ડિટેક્શન)
-            # stream=True નો ઉપયોગ કરવાથી મેમરી બચે છે અને કેમેરા ફાસ્ટ ચાલે છે
-            results = model(frame, conf=0.35, verbose=False, stream=True)
+            frame_count = 0
+            last_detected_plate = ""
+            last_save_time = 0
             
-            for r in results:
-                for box in r.boxes:
-                    cls = int(box.cls[0])
-                    # ફક્ત વ્હીકલ્સ (કાર, બસ, ટ્રક, મોટરસાઇકલ) ડિટેક્ટ થાય ત્યારે જ ગ્રીન બોક્સ બને
-                    if cls in [2, 3, 5, 7]: 
-                        x1, y1, x2, y2 = map(int, box.xyxy[0])
-                        
-                        # 🟢 ગ્રીન બોક્સ ડ્રો કરો (જેવું તમે ઈમેજમાં માગ્યું હતું)
-                        cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 3)
-                        
-                        # ⚡ કેમેરો લેગ ન મારે એટલે ફક્ત દર ચોથી ફ્રેમ પર જ OCR પ્રોસેસ થશે
-                        if frame_count % 4 == 0:
-                            cropped_plate = frame[y1:y2, x1:x2]
-                            
-                            if cropped_plate.size > 0:
-                                gray_plate = cv2.cvtColor(cropped_plate, cv2.COLOR_BGR2GRAY)
-                                resized_plate = cv2.resize(gray_plate, None, fx=2.5, fy=2.5, interpolation=cv2.INTER_CUBIC)
-                                ocr_result = reader.readtext(resized_plate, paragraph=False, allowlist='ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789')
-                                
-                                for res in ocr_result:
-                                    plate_text = res[1].strip().upper().replace(" ", "").replace("-", "")
-                                    
-                                    # ફિલ્ટર લોજિક અને સ્ટેબલ ડેટા સેવિંગ
-                                    if len(plate_text) >= 5 and "TOTAL" not in plate_text and is_valid_indian_plate(plate_text):
-                                        detected_text_placeholder.success(f"🚗 Valid Indian Plate Detected: **{plate_text}**")
-                                        current_sec = time.time()
-                                        
-                                        if plate_text != last_detected_plate or (current_sec - last_save_time > 8):
-                                            last_detected_plate = plate_text
-                                            last_save_time = current_sec
-                                            
-                                            now = datetime.now()
-                                            today_str = now.strftime("%Y-%m-%d")
-                                            
-                                            conn = sqlite3.connect(DB_FILE)
-                                            cursor = conn.cursor()
-                                            cursor.execute("SELECT id, time_in FROM vehicle_logs WHERE vehicle_number = ? AND status = 'IN' LIMIT 1", (plate_text,))
-                                            existing_vehicle = cursor.fetchone()
-                                            
-                                            if existing_vehicle:
-                                                doc_id = existing_vehicle[0]
-                                                time_in_str = f"{today_str} {existing_vehicle[1]}"
-                                                time_in_dt = datetime.strptime(time_in_str, "%Y-%m-%d %H:%M:%S")
-                                                duration = round((now - time_in_dt).total_seconds() / 60.0, 2)
-                                                
-                                                cursor.execute("""
-                                                    UPDATE vehicle_logs 
-                                                    SET time_out = ?, duration_minutes = ?, status = 'OUT' 
-                                                    WHERE id = ?
-                                                """, (now.strftime("%H:%M:%S"), duration, doc_id))
-                                                st.toast(f"🔴 Vehicle OUT: {plate_text}")
-                                            else:
-                                                cursor.execute("SELECT COUNT(*) FROM vehicle_logs WHERE log_date = ?", (today_str,))
-                                                next_id_count = cursor.fetchone()[0] + 1
-                                                unique_doc_id = f"{today_str}_{next_id_count}"
-                                                
-                                                cursor.execute("""
-                                                    INSERT INTO vehicle_logs (id, daily_serial, vehicle_number, log_date, time_in, time_out, duration_minutes, status)
-                                                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                                                """, (unique_doc_id, next_id_count, plate_text, today_str, now.strftime("%H:%M:%S"), "-", 0.0, "IN"))
-                                                st.toast(f"🟢 Vehicle IN: {plate_text}")
-                                            
-                                            conn.commit()
-                                            conn.close()
-
-            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            frame_placeholder.image(frame_rgb, channels="RGB", use_container_width=True)
-
-            # ડેટાબેઝ કોષ્ટક અપડેટ
-            conn = sqlite3.connect(DB_FILE)
-            df_db = pd.read_sql_query("SELECT * FROM vehicle_logs WHERE log_date = ?", conn, params=(formatted_search_date,))
-            conn.close()
-
-            with table_placeholder.container():
-                if not df_db.empty:
-                    total_in = len(df_db[df_db['status'] == 'IN'])
-                    total_out = len(df_db[df_db['status'] == 'OUT'])
-                    df_db['daily_serial'] = df_db['daily_serial'].astype(int)
-                    df_db = df_db.sort_values(by='daily_serial', ascending=False)
-                    df_db['Log ID'] = df_db['daily_serial'].apply(lambda x: f"Log #{x}")
-                    df_disp = df_db[['Log ID', 'vehicle_number', 'log_date', 'time_in', 'time_out', 'duration_minutes', 'status']].copy()
-                    df_disp.columns = ['Log ID', 'Vehicle Number', 'Date', 'Time In', 'Time Out', 'Duration (Min)', 'Status']
+            while run_camera:
+                for _ in range(2):  
+                    cap.grab()
                     
-                    if status_filter == "Currently IN":
-                        df_disp = df_disp[df_disp['Status'] == 'IN']
-                    elif status_filter == "Already OUT":
-                        df_disp = df_disp[df_disp['Status'] == 'OUT']
+                ret, frame = cap.read()
+                if not ret:
+                    st.error("કેમેરા કનેક્શન તૂટી ગયું છે. રી-ટ્રાય થઈ રહ્યું છે...")
+                    time.sleep(2)
+                    continue
+                    
+                frame_count += 1
+                
+                conn = sqlite3.connect(DB_FILE)
+                cursor = conn.cursor()
+                cursor.execute("SELECT COUNT(*) FROM vehicle_logs WHERE log_date = ? AND status = 'IN'", (formatted_search_date,))
+                live_in = cursor.fetchone()[0]
+                cursor.execute("SELECT COUNT(*) FROM vehicle_logs WHERE log_date = ? AND status = 'OUT'", (formatted_search_date,))
+                live_out = cursor.fetchone()[0]
+                cursor.execute("SELECT COUNT(*) FROM vehicle_logs WHERE log_date = ?", (formatted_search_date,))
+                current_total_logs = cursor.fetchone()[0]
+                conn.close()
 
-                    m1, m2, m3 = st.columns(3)
-                    with m1: st.markdown(f"<div style='background: #0f172a; padding:22px; border-radius:14px; text-align:center; border: 1px solid #10b981;'><p style='color:#a1a1aa; font-size:13px; margin:0;'>🟢 CURRENTLY IN</p><h1 style='color:#10b981; margin:8px 0 0 0; font-size:46px;'>{total_in}</h1></div>", unsafe_allow_html=True)
-                    with m2: st.markdown(f"<div style='background: #0f172a; padding:22px; border-radius:14px; text-align:center; border: 1px solid #ef4444;'><p style='color:#a1a1aa; font-size:13px; margin:0;'>🔴 TOTAL OUT</p><h1 style='color:#ef4444; margin:8px 0 0 0; font-size:46px;'>{total_out}</h1></div>", unsafe_allow_html=True)
-                    with m3: st.markdown(f"<div style='background: #0f172a; padding:22px; border-radius:14px; text-align:center; border: 1px solid #f97316;'><p style='color:#a1a1aa; font-size:13px; margin:0;'>TOTAL DAY LOGS</p><h1 style='color:#f97316; margin:8px 0 0 0; font-size:46px;'>{len(df_db)}</h1></div>", unsafe_allow_html=True)
+                if current_total_logs != st.session_state.last_log_count:
+                    st.session_state.last_log_count = current_total_logs
 
-                    st.markdown("<br>", unsafe_allow_html=True)
-                    st.markdown(f"<h3 style='color: white; font-family: \"Segoe UI\";'>📋 Live Vehicle Track Management Table ({formatted_search_date})</h3>", unsafe_allow_html=True)
-                    def highlight_status(val):
-                        return 'background-color: #064e3b; color: #34d399; font-weight: bold;' if val == 'IN' else 'background-color: #3b0764; color: #d8b4fe; font-weight: bold;'
-                    st.dataframe(df_disp.style.map(highlight_status, subset=['Status']).format({'Duration (Min)': '{:.2f}'}), width="stretch", hide_index=True)
+                stats_placeholder.markdown("""
+                    <div style='background-color: #1e293b; padding: 20px; border-radius: 12px; border: 1px solid #3b82f6; text-align: center;'>
+                        <h4 style='color: #93c5fd; margin: 0 0 15px 0;'>⚡ Live Camera Counter ({2})</h4>
+                        <div style='margin-bottom: 10px;'>
+                            <span style='color: #4ade80; font-size: 16px; font-weight: bold;'>🟢 Vehicles IN:</span>
+                            <span style='color: white; font-size: 24px; font-weight: bold; margin-left: 10px;'>{0}</span>
+                        </div>
+                        <div>
+                            <span style='color: #f87171; font-size: 16px; font-weight: bold;'>🔴 Vehicles OUT:</span>
+                            <span style='color: white; font-size: 24px; font-weight: bold; margin-left: 10px;'>{1}</span>
+                        </div>
+                    </div>
+                """.format(live_in, live_out, formatted_search_date), unsafe_allow_html=True)
 
-            if cv2.waitKey(1) & 0xFF == ord('q'):
-                break
-            time.sleep(0.001) # સ્મૂધ પ્રોસેસિંગ માટે બહુ નાનો સ્લીપ ટાઈમ
-            
-        cap.release()
+                results = model(frame, conf=0.35, verbose=False, stream=True)
+                
+                for r in results:
+                    for box in r.boxes:
+                        cls = int(box.cls[0])
+                        if cls in [2, 3, 5, 7]: 
+                            x1, y1, x2, y2 = map(int, box.xyxy[0])
+                            
+                            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 3)
+                            
+                            if frame_count % 4 == 0:
+                                cropped_plate = frame[y1:y2, x1:x2]
+                                
+                                if cropped_plate.size > 0:
+                                    gray_plate = cv2.cvtColor(cropped_plate, cv2.COLOR_BGR2GRAY)
+                                    resized_plate = cv2.resize(gray_plate, None, fx=2.5, fy=2.5, interpolation=cv2.INTER_CUBIC)
+                                    ocr_result = reader.readtext(resized_plate, paragraph=False, allowlist='ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789')
+                                    
+                                    for res in ocr_result:
+                                        plate_text = res[1].strip().upper().replace(" ", "").replace("-", "")
+                                        
+                                        if len(plate_text) >= 5 and "TOTAL" not in plate_text and is_valid_indian_plate(plate_text):
+                                            detected_text_placeholder.success(f"🚗 Valid Indian Plate Detected: **{plate_text}**")
+                                            current_sec = time.time()
+                                            
+                                            if plate_text != last_detected_plate or (current_sec - last_save_time > 8):
+                                                last_detected_plate = plate_text
+                                                last_save_time = current_sec
+                                                
+                                                now = datetime.now()
+                                                today_str = now.strftime("%Y-%m-%d")
+                                                
+                                                conn = sqlite3.connect(DB_FILE)
+                                                cursor = conn.cursor()
+                                                cursor.execute("SELECT id, time_in FROM vehicle_logs WHERE vehicle_number = ? AND status = 'IN' LIMIT 1", (plate_text,))
+                                                existing_vehicle = cursor.fetchone()
+                                                
+                                                if existing_vehicle:
+                                                    doc_id = existing_vehicle[0]
+                                                    time_in_str = f"{today_str} {existing_vehicle[1]}"
+                                                    time_in_dt = datetime.strptime(time_in_str, "%Y-%m-%d %H:%M:%S")
+                                                    duration = round((now - time_in_dt).total_seconds() / 60.0, 2)
+                                                    
+                                                    cursor.execute("""
+                                                        UPDATE vehicle_logs 
+                                                        SET time_out = ?, duration_minutes = ?, status = 'OUT' 
+                                                        WHERE id = ?
+                                                    """, (now.strftime("%H:%M:%S"), duration, doc_id))
+                                                    st.toast(f"🔴 Vehicle OUT: {plate_text}")
+                                                else:
+                                                    cursor.execute("SELECT COUNT(*) FROM vehicle_logs WHERE log_date = ?", (today_str,))
+                                                    next_id_count = cursor.fetchone()[0] + 1
+                                                    unique_doc_id = f"{today_str}_{next_id_count}"
+                                                    
+                                                    cursor.execute("""
+                                                        INSERT INTO vehicle_logs (id, daily_serial, vehicle_number, log_date, time_in, time_out, duration_minutes, status)
+                                                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                                                    """, (unique_doc_id, next_id_count, plate_text, today_str, now.strftime("%H:%M:%S"), "-", 0.0, "IN"))
+                                                    st.toast(f"🟢 Vehicle IN: {plate_text}")
+                                                
+                                                conn.commit()
+                                                conn.close()
+
+                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                frame_placeholder.image(frame_rgb, channels="RGB", use_container_width=True)
+
+                conn = sqlite3.connect(DB_FILE)
+                df_db = pd.read_sql_query("SELECT * FROM vehicle_logs WHERE log_date = ?", conn, params=(formatted_search_date,))
+                conn.close()
+
+                with table_placeholder.container():
+                    if not df_db.empty:
+                        total_in = len(df_db[df_db['status'] == 'IN'])
+                        total_out = len(df_db[df_db['status'] == 'OUT'])
+                        df_db['daily_serial'] = df_db['daily_serial'].astype(int)
+                        df_db = df_db.sort_values(by='daily_serial', ascending=False)
+                        df_db['Log ID'] = df_db['daily_serial'].apply(lambda x: f"Log #{x}")
+                        df_disp = df_db[['Log ID', 'vehicle_number', 'log_date', 'time_in', 'time_out', 'duration_minutes', 'status']].copy()
+                        df_disp.columns = ['Log ID', 'Vehicle Number', 'Date', 'Time In', 'Time Out', 'Duration (Min)', 'Status']
+                        
+                        if status_filter == "Currently IN":
+                            df_disp = df_disp[df_disp['Status'] == 'IN']
+                        elif status_filter == "Already OUT":
+                            df_disp = df_disp[df_disp['Status'] == 'OUT']
+
+                        m1, m2, m3 = st.columns(3)
+                        with m1: st.markdown(f"<div style='background: #0f172a; padding:22px; border-radius:14px; text-align:center; border: 1px solid #10b981;'><p style='color:#a1a1aa; font-size:13px; margin:0;'>🟢 CURRENTLY IN</p><h1 style='color:#10b981; margin:8px 0 0 0; font-size:46px;'>{total_in}</h1></div>", unsafe_allow_html=True)
+                        with m2: st.markdown(f"<div style='background: #0f172a; padding:22px; border-radius:14px; text-align:center; border: 1px solid #ef4444;'><p style='color:#a1a1aa; font-size:13px; margin:0;'>🔴 TOTAL OUT</p><h1 style='color:#ef4444; margin:8px 0 0 0; font-size:46px;'>{total_out}</h1></div>", unsafe_allow_html=True)
+                        with m3: st.markdown(f"<div style='background: #0f172a; padding:22px; border-radius:14px; text-align:center; border: 1px solid #f97316;'><p style='color:#a1a1aa; font-size:13px; margin:0;'>TOTAL DAY LOGS</p><h1 style='color:#f97316; margin:8px 0 0 0; font-size:46px;'>{len(df_db)}</h1></div>", unsafe_allow_html=True)
+
+                        st.markdown("<br>", unsafe_allow_html=True)
+                        st.markdown(f"<h3 style='color: white; font-family: \"Segoe UI\";'>📋 Live Vehicle Track Management Table ({formatted_search_date})</h3>", unsafe_allow_html=True)
+                        def highlight_status(val):
+                            return 'background-color: #064e3b; color: #34d399; font-weight: bold;' if val == 'IN' else 'background-color: #3b0764; color: #d8b4fe; font-weight: bold;'
+                        st.dataframe(df_disp.style.map(highlight_status, subset=['Status']).format({'Duration (Min)': '{:.2f}'}), width="stretch", hide_index=True)
+
+                time.sleep(0.001)
+            cap.release()
+        except NameError:
+            st.error("⚠️ Cloud OS Environment Error: OpenCV Graphic libraries are missing. Camera mode is only fully supported locally.")
 
     if not run_camera:
         conn = sqlite3.connect(DB_FILE)
