@@ -1,6 +1,5 @@
 streamlit
 pandas
-ultralytics
 easyocr
 plotly
 numpy<2.0.0
