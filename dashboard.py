@@ -6,7 +6,6 @@ import time
 import base64
 import cv2
 import re
-from ultralytics import YOLO
 import easyocr
 import numpy as np
 from datetime import datetime
@@ -125,7 +124,7 @@ if not st.session_state.logged_in:
     _, col, _ = st.columns([1, 1.5, 1])
     with col:
         st.markdown("<br><br>", unsafe_allow_html=True)
-        logo_path = r"C:\Users\ALPESH PATEL\Desktop\Social_ANPR_Project\logo.jpeg"
+        logo_path = r"logo.jpeg"
         logo_html = ""
         if os.path.exists(logo_path):
             logo_base64 = get_base64_of_bin_file(logo_path)
@@ -187,23 +186,53 @@ if not st.session_state.logged_in:
 
 
 # ==========================================
-# DASHBOARD CODE
+# DASHBOARD CODE (OpenCV & EasyOCR ONLY)
 # ==========================================
 
 @st.cache_resource
 def load_models():
-    # સ્મૂધ પર્ફોર્મન્સ અને ઝીરો લેગ માટે 'yolov8n.pt' (Nano) બેસ્ટ છે.
-    model = YOLO('yolov8n.pt') 
-    # જો ગ્રાફિક્સ કાર્ડ હોય તો gpu=True કરો, નહિતર False રાખવાથી પણ ફ્રેમ સ્કીપિંગના કારણે લેગ નહિ મારે
+    # YOLO મોડેલ હટાવી દીધું છે, માત્ર EasyOCR લોડ થશે
+    # જો ડેસ્કટોપમાં CUDA ગ્રાફિક્સ કાર્ડ હોય તો જ gpu=True રાખવું
     reader = easyocr.Reader(['en'], gpu=True) 
-    return model, reader
+    return reader
 
-model, reader = load_models()
+reader = load_models()
 
 # 🛡️ ઇન્ડિયન નંબર પ્લેટ ફિલ્ટર
 def is_valid_indian_plate(text):
     pattern = r'^[A-Z0-9]{4,11}$'
     return bool(re.match(pattern, text))
+
+# OpenCV Contour Detection નો ઉપયોગ કરીને નંબર પ્લેટ લોકેશન શોધવાનું ફંક્શન
+def detect_plate_contour(frame):
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    
+    # નોઈઝ ઓછો કરવા અને એજીસ શાર્પ કરવા માટે બાયલેટરલ ફિલ્ટર
+    bfilter = cv2.bilateralFilter(gray, 11, 17, 17)
+    
+    # Canny Edge Detection
+    edged = cv2.Canny(bfilter, 30, 200)
+    
+    # કોન્ટૂર્સ શોધવા
+    contours, _ = cv2.findContours(edged.copy(), cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+    contours = sorted(contours, key=cv2.contourArea, reverse=True)[:15]
+    
+    detected_plates = []
+    
+    for c in contours:
+        peri = cv2.arcLength(c, True)
+        approx = cv2.approxPolyDP(c, 0.02 * peri, True)
+        
+        # જો આકારને 4 કોર્નર્સ હોય (લંબચોરસ પ્લેટ)
+        if len(approx) == 4:
+            x, y, w, h = cv2.boundingRect(c)
+            aspect_ratio = w / float(h)
+            
+            # સામાન્ય રીતે ઈન્ડિયન નંબર પ્લેટ આડી લંબચોરસ હોય છે (રેશિયો 2 થી 6 ની વચ્ચે)
+            if 2.0 < aspect_ratio < 6.0 and w > 40 and h > 15:
+                detected_plates.append((x, y, w, h))
+                
+    return detected_plates
 
 # SIDEBAR DESIGN
 st.sidebar.markdown("""
@@ -262,8 +291,7 @@ with tab1:
         
         if CCTV_MODE:
             cap = cv2.VideoCapture(RTSP_URL, cv2.CAP_FFMPEG)
-            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1) # બફર લેગ ઓછો કરવા માટે 1 સેચ્ડ
-            cap.set(cv2.CAP_PROP_HW_ACCELERATION, cv2.VIDEO_ACCELERATION_ANY)
+            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1) # બફર લેગ ઓછો કરવા માટે
         else:
             cap = cv2.VideoCapture(0)
             cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
@@ -274,9 +302,10 @@ with tab1:
         last_save_time = 0
         
         while run_camera:
-            # 🛑 બફર ફ્લશ લોજિક (લાઈવ વિડીયો સ્મૂધ રાખવા માટે)
-            for _ in range(2):  
-                cap.grab()
+            # 🛑 CCTV બફર લેગ ફ્લશ લોજિક 
+            if CCTV_MODE:
+                for _ in range(5):  # 5 ફ્રેમ સ્કીપ કરવાથી લાઈવ વીડિયો ઝીરો લેગ સાથે ચાલશે
+                    cap.grab()
                 
             ret, frame = cap.read()
             if not ret:
@@ -315,79 +344,76 @@ with tab1:
                 </div>
             """.format(live_in, live_out, formatted_search_date), unsafe_allow_html=True)
 
-            # 🎯 AI સ્કેનિંગ શરૂ (YOLO ડિટેક્શન)
-            # stream=True નો ઉપયોગ કરવાથી મેમરી બચે છે અને કેમેરા ફાસ્ટ ચાલે છે
-            results = model(frame, conf=0.35, verbose=False, stream=True)
+            # 🎯 OpenCV Contour Detection વડે નંબર પ્લેટના લોકેશન્સ મેળવો
+            plate_boxes = detect_plate_contour(frame)
             
-            for r in results:
-                for box in r.boxes:
-                    cls = int(box.cls[0])
-                    # ફક્ત વ્હીકલ્સ (કાર, બસ, ટ્રક, મોટરસાઇકલ) ડિટેક્ટ થાય ત્યારે જ ગ્રીન બોક્સ બને
-                    if cls in [2, 3, 5, 7]: 
-                        x1, y1, x2, y2 = map(int, box.xyxy[0])
+            for (x, y, w, h) in plate_boxes:
+                # 🟢 સંભવિત નંબર પ્લેટ પર ગ્રીન બોક્સ બનાવો
+                cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 3)
+                
+                # ⚡ દર 5મી ફ્રેમ પર જ OCR પ્રોસેસ થશે જેથી સિસ્ટમ લેગ ન થાય
+                if frame_count % 5 == 0:
+                    cropped_plate = frame[y:y+h, x:x+w]
+                    
+                    if cropped_plate.size > 0:
+                        gray_plate = cv2.cvtColor(cropped_plate, cv2.COLOR_BGR2GRAY)
+                        resized_plate = cv2.resize(gray_plate, None, fx=2.0, fy=2.0, interpolation=cv2.INTER_CUBIC)
                         
-                        # 🟢 ગ્રીન બોક્સ ડ્રો કરો (જેવું તમે ઈમેજમાં માગ્યું હતું)
-                        cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 3)
+                        # EasyOCR વડે અક્ષરો રીડ કરવા
+                        ocr_result = reader.readtext(resized_plate, paragraph=False, allowlist='ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789')
                         
-                        # ⚡ કેમેરો લેગ ન મારે એટલે ફક્ત દર ચોથી ફ્રેમ પર જ OCR પ્રોસેસ થશે
-                        if frame_count % 4 == 0:
-                            cropped_plate = frame[y1:y2, x1:x2]
+                        for res in ocr_result:
+                            plate_text = res[1].strip().upper().replace(" ", "").replace("-", "")
                             
-                            if cropped_plate.size > 0:
-                                gray_plate = cv2.cvtColor(cropped_plate, cv2.COLOR_BGR2GRAY)
-                                resized_plate = cv2.resize(gray_plate, None, fx=2.5, fy=2.5, interpolation=cv2.INTER_CUBIC)
-                                ocr_result = reader.readtext(resized_plate, paragraph=False, allowlist='ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789')
+                            # ફિલ્ટર અને ઇન્ડિયન નંબર પ્લેટ વેરિફિકેશન
+                            if len(plate_text) >= 5 and "TOTAL" not in plate_text and is_valid_indian_plate(plate_text):
+                                cv2.putText(frame, plate_text, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+                                detected_text_placeholder.success(f"🚗 Valid Indian Plate Detected: **{plate_text}**")
+                                current_sec = time.time()
                                 
-                                for res in ocr_result:
-                                    plate_text = res[1].strip().upper().replace(" ", "").replace("-", "")
+                                # એક જ નંબર વારંવાર સેવ ન થાય તે માટે 10 સેકન્ડનો ડિલે સેટ કર્યો છે
+                                if plate_text != last_detected_plate or (current_sec - last_save_time > 10):
+                                    last_detected_plate = plate_text
+                                    last_save_time = current_sec
                                     
-                                    # ફિલ્ટર લોજિક અને સ્ટેબલ ડેટા સેવિંગ
-                                    if len(plate_text) >= 5 and "TOTAL" not in plate_text and is_valid_indian_plate(plate_text):
-                                        detected_text_placeholder.success(f"🚗 Valid Indian Plate Detected: **{plate_text}**")
-                                        current_sec = time.time()
+                                    now = datetime.now()
+                                    today_str = now.strftime("%Y-%m-%d")
+                                    
+                                    conn = sqlite3.connect(DB_FILE)
+                                    cursor = conn.cursor()
+                                    cursor.execute("SELECT id, time_in FROM vehicle_logs WHERE vehicle_number = ? AND status = 'IN' LIMIT 1", (plate_text,))
+                                    existing_vehicle = cursor.fetchone()
+                                    
+                                    if existing_vehicle:
+                                        doc_id = existing_vehicle[0]
+                                        time_in_str = f"{today_str} {existing_vehicle[1]}"
+                                        time_in_dt = datetime.strptime(time_in_str, "%Y-%m-%d %H:%M:%S")
+                                        duration = round((now - time_in_dt).total_seconds() / 60.0, 2)
                                         
-                                        if plate_text != last_detected_plate or (current_sec - last_save_time > 8):
-                                            last_detected_plate = plate_text
-                                            last_save_time = current_sec
-                                            
-                                            now = datetime.now()
-                                            today_str = now.strftime("%Y-%m-%d")
-                                            
-                                            conn = sqlite3.connect(DB_FILE)
-                                            cursor = conn.cursor()
-                                            cursor.execute("SELECT id, time_in FROM vehicle_logs WHERE vehicle_number = ? AND status = 'IN' LIMIT 1", (plate_text,))
-                                            existing_vehicle = cursor.fetchone()
-                                            
-                                            if existing_vehicle:
-                                                doc_id = existing_vehicle[0]
-                                                time_in_str = f"{today_str} {existing_vehicle[1]}"
-                                                time_in_dt = datetime.strptime(time_in_str, "%Y-%m-%d %H:%M:%S")
-                                                duration = round((now - time_in_dt).total_seconds() / 60.0, 2)
-                                                
-                                                cursor.execute("""
-                                                    UPDATE vehicle_logs 
-                                                    SET time_out = ?, duration_minutes = ?, status = 'OUT' 
-                                                    WHERE id = ?
-                                                """, (now.strftime("%H:%M:%S"), duration, doc_id))
-                                                st.toast(f"🔴 Vehicle OUT: {plate_text}")
-                                            else:
-                                                cursor.execute("SELECT COUNT(*) FROM vehicle_logs WHERE log_date = ?", (today_str,))
-                                                next_id_count = cursor.fetchone()[0] + 1
-                                                unique_doc_id = f"{today_str}_{next_id_count}"
-                                                
-                                                cursor.execute("""
-                                                    INSERT INTO vehicle_logs (id, daily_serial, vehicle_number, log_date, time_in, time_out, duration_minutes, status)
-                                                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                                                """, (unique_doc_id, next_id_count, plate_text, today_str, now.strftime("%H:%M:%S"), "-", 0.0, "IN"))
-                                                st.toast(f"🟢 Vehicle IN: {plate_text}")
-                                            
-                                            conn.commit()
-                                            conn.close()
+                                        cursor.execute("""
+                                            UPDATE vehicle_logs 
+                                            SET time_out = ?, duration_minutes = ?, status = 'OUT' 
+                                            WHERE id = ?
+                                        """, (now.strftime("%H:%M:%S"), duration, doc_id))
+                                        st.toast(f"🔴 Vehicle OUT: {plate_text}")
+                                    else:
+                                        cursor.execute("SELECT COUNT(*) FROM vehicle_logs WHERE log_date = ?", (today_str,))
+                                        next_id_count = cursor.fetchone()[0] + 1
+                                        unique_doc_id = f"{today_str}_{next_id_count}"
+                                        
+                                        cursor.execute("""
+                                            INSERT INTO vehicle_logs (id, daily_serial, vehicle_number, log_date, time_in, time_out, duration_minutes, status)
+                                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                                        """, (unique_doc_id, next_id_count, plate_text, today_str, now.strftime("%H:%M:%S"), "-", 0.0, "IN"))
+                                        st.toast(f"🟢 Vehicle IN: {plate_text}")
+                                    
+                                    conn.commit()
+                                    conn.close()
 
             frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             frame_placeholder.image(frame_rgb, channels="RGB", use_container_width=True)
 
-            # ડેટાબેઝ કોષ્ટક અપડેટ
+            # ડેટાબેઝ ટેબલ લાઈવ અપડેટ
             conn = sqlite3.connect(DB_FILE)
             df_db = pd.read_sql_query("SELECT * FROM vehicle_logs WHERE log_date = ?", conn, params=(formatted_search_date,))
             conn.close()
@@ -418,9 +444,7 @@ with tab1:
                         return 'background-color: #064e3b; color: #34d399; font-weight: bold;' if val == 'IN' else 'background-color: #3b0764; color: #d8b4fe; font-weight: bold;'
                     st.dataframe(df_disp.style.map(highlight_status, subset=['Status']).format({'Duration (Min)': '{:.2f}'}), width="stretch", hide_index=True)
 
-            if cv2.waitKey(1) & 0xFF == ord('q'):
-                break
-            time.sleep(0.001) # સ્મૂધ પ્રોસેસિંગ માટે બહુ નાનો સ્લીપ ટાઈમ
+            time.sleep(0.001) 
             
         cap.release()
 
@@ -502,7 +526,17 @@ with tab2:
         st.plotly_chart(fig, use_container_width=True)
     else:
         st.info(f"Insufficient data logs available for {formatted_search_date} to generate analytics.")
+# if not run_camera:
+#     time.sleep(15)
+#     st.rerun()
 
-if not run_camera:
-    time.sleep(15)
-    st.rerun()
+from streamlit_autorefresh import st_autorefresh
+
+# ===================================================
+# 🔄 ERROR-FREE AUTO REFRESH LOGIC (કોડની સાવ નીચે)
+# ===================================================
+# જો કેમેરો બંધ હોય, તો જ આ ઓટો-રિફ્રેશ ચાલુ થશે
+if not st.session_state.get('run_camera', False):
+    # interval = 15000 મિલિસેકન્ડ (એટલે કે ૧૫ સેકન્ડ)
+    # key = આ રિફ્રેશરને એક યુનિક આઈડી આપવા માટે
+    st_autorefresh(interval=15000, key="datarefresh")
