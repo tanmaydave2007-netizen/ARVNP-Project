@@ -3,7 +3,7 @@ import sqlite3
 import pandas as pd
 import os
 import time
-import base64
+import base64 
 import cv2
 import re
 import easyocr
